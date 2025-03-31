@@ -32,12 +32,17 @@ from film
 left join inventory on film.film_id = inventory.film_id
 where inventory.film_id is null;
 
+select film.title as film_title
+from film
+where not exists(
+select 1 from inventory where film.film_id = inventory.film_id
+);
+
 /*Display the top 3 actors who appeared the most in films 
 within the "Children" category. If multiple actors have the 
 same count, include all*/
-select ranked.first_name, ranked.last_name, ranked.number_of_films
-from (
-    select actor.actor_id,actor.first_name, actor.last_name,
+with ranked as 
+(select actor.actor_id,actor.first_name, actor.last_name,
         count(film_actor.film_id) as number_of_films,
         dense_rank() over (order by count(film_actor.film_id) desc) as film_rank
     from actor
@@ -45,11 +50,11 @@ from (
     join film_category on film_actor.film_id = film_category.film_id
     join category on film_category.category_id = category.category_id
     where category.name = 'Children'
-    group by actor.actor_id, actor.first_name, actor.last_name
-) as ranked
+    group by actor.actor_id, actor.first_name, actor.last_name)
+select first_name, last_name, number_of_films from ranked
 where 
-    ranked.film_rank <= 3
-order by ranked.number_of_films desc;
+    film_rank <= 3
+order by number_of_films desc;
 
 /*Display cities with the count of active and inactive customers 
 (active = 1). Sort by the count of inactive customers in descending 
@@ -67,35 +72,38 @@ group by city.city order by inactive_customers  desc;
 in cities where customer.address_id belongs to that city and starts 
 with the letter "a". Do the same for cities containing the symbol "-". 
 Write this in a single query.*/
-(select category.name as category,
-round(sum(extract(epoch from (rental.return_date - rental.rental_date))/3600),0) as rental_hours,
-'City starts with a' as filter_type
-from category
-join film_category on category.category_id = film_category.category_id
-join inventory on film_category.film_id = inventory.film_id
-join rental on inventory.inventory_id = rental.inventory_id
-join customer on rental.customer_id = customer.customer_id
-join address on customer.address_id = address.address_id
-join city on address.city_id = city.city_id
-where city.city like 'a%' 
+WITH rental_data AS (
+    SELECT 
+        category.name AS category,
+        city.city AS city_name,
+        ROUND(SUM(EXTRACT(EPOCH FROM (rental.return_date - rental.rental_date)) / 3600), 0) AS rental_hours
+    FROM category
+    JOIN film_category ON category.category_id = film_category.category_id
+    JOIN inventory ON film_category.film_id = inventory.film_id
+    JOIN rental ON inventory.inventory_id = rental.inventory_id
+    JOIN customer ON rental.customer_id = customer.customer_id
+    JOIN address ON customer.address_id = address.address_id
+    JOIN city ON address.city_id = city.city_id
+    GROUP BY category, city.city
+)
+(SELECT category, sum(rental_hours) as total, 'City starts with a' AS filter_type
+FROM rental_data
+WHERE city_name LIKE 'A%'
 group by category
-order by rental_hours desc
-limit 1)
-union all
-(select category.name as category,
-round(sum(extract(epoch from (rental.return_date - rental.rental_date))/3600),0) as rental_hours,
-'City contains -' as filter_type
-from category
-join film_category on category.category_id = film_category.category_id
-join inventory on film_category.film_id = inventory.film_id
-join rental on inventory.inventory_id = rental.inventory_id
-join customer on rental.customer_id = customer.customer_id
-join address on customer.address_id = address.address_id
-join city on address.city_id = city.city_id
-where city.city like '%-%' 
+ORDER BY total DESC
+LIMIT 1)
+
+UNION ALL
+
+(SELECT category, sum(rental_hours) as total, 'City contains -' AS filter_type
+FROM rental_data
+WHERE city_name LIKE '%-%'
 group by category
-order by rental_hours desc
-limit 1);
+ORDER BY total DESC
+LIMIT 1);
+
+
+
 
 
 
